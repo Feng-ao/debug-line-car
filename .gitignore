@@ -1,0 +1,29 @@
+# Keil MDK 编译输出与工程私有文件
+**/MDK-ARM/*/
+**/MDK-ARM/*.uvguix.*
+**/MDK-ARM/*.uvoptx
+**/Objects/
+**/Listings/
+**/DebugConfig/
+**/RTE/
+
+# CubeMX 用户配置
+.mxproject
+
+# 编译中间文件
+*.o
+*.d
+*.axf
+*.hex
+*.map
+*.dep
+*.lnp
+*.sct
+*.crf
+*.bak
+*.build_log.htm
+*.htm
+
+# 系统与编辑器
+.DS_Store
+.vscode/
