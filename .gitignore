@@ -27,3 +27,7 @@
 # 系统与编辑器
 .DS_Store
 .vscode/
+
+# 练习工程：只保留自己写的代码，CubeMX 生成的库文件不入库
+practice/*/Drivers/
+practice/*/.mxproject
