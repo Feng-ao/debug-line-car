@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "oled.h"
+#include "key.h"
+#include "menu.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,7 +75,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  uint32_t hb_tick = 0;      /* 板载灯心跳计时 */
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -99,25 +101,31 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-  OLED_Fill(0xFF);                      /* 自检：全屏点亮 1 秒 */
+  OLED_Fill(0xFF);                      /* 自检：全屏点亮 0.3 秒 */
   OLED_Update();
-  HAL_Delay(1000);
+  HAL_Delay(300);
   OLED_Clear();
-  OLED_ShowString(12, 0, "DEBUG-LINE CAR");
-  OLED_ShowString(30, 2, "OLED OK!");
-  OLED_ShowString(0,  4, "KEY: ----");
-  OLED_ShowString(0,  6, "128x64 READY");
+  OLED_ShowString(22, 2, "DEBUG LINE CAR");
+  OLED_ShowString(40, 4, "MENU TEST");
   OLED_Update();
+  HAL_Delay(600);
+
+  Menu_Init();                          /* 显示主菜单，箭头默认指首行 */
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* 板载绿灯心跳：闪=程序活着 */
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-    HAL_GPIO_TogglePin(GPIOB, LED1_Pin);
-    HAL_Delay(500);
+    /* 菜单 + 按键：内部 10ms 调度，不阻塞 */
+    Menu_Task();
+
+    /* 板载绿灯心跳：闪=程序活着（非阻塞，500ms 翻转） */
+    if ((HAL_GetTick() - hb_tick) >= 500u)
+    {
+      hb_tick = HAL_GetTick();
+      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
