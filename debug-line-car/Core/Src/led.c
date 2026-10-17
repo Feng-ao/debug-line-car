@@ -88,7 +88,18 @@ uint8_t LED_Task(void)
 
     led1_on = (uint8_t)(!led1_on);
     led2_on = (uint8_t)(!led2_on);      /* 永远是反相，不会同时亮或同时灭 */
-    LED_Apply();
+
+    /* 先点亮要亮的那颗、再熄灭要灭的那颗，切换瞬间也不会出现两灯同时灭 */
+    if (led1_on)
+    {
+        HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+    }
+    else
+    {
+        HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+    }
 
     return 1;
 }
