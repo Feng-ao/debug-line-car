@@ -419,6 +419,41 @@
               <FilePath>../Core/Src/led.c</FilePath>
             </File>
             <File>
+              <FileName>info.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/info.c</FilePath>
+            </File>
+            <File>
+              <FileName>sensor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/sensor.c</FilePath>
+            </File>
+            <File>
+              <FileName>line.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/line.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>buzzer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/buzzer.c</FilePath>
+            </File>
+            <File>
+              <FileName>track.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/track.c</FilePath>
+            </File>
+            <File>
+              <FileName>gogogo.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/gogogo.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f1xx_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f1xx_it.c</FilePath>

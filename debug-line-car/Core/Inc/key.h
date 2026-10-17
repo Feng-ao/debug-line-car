@@ -12,5 +12,6 @@
 
 void    Key_Init(void);
 uint8_t Key_Scan(void);
+uint8_t Key_IsDown(uint8_t n);   /* n = 1~4，返回当前是否按住（已消抖） */
 
 #endif

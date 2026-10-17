@@ -45,6 +45,15 @@ void Key_Init(void)
     }
 }
 
+uint8_t Key_IsDown(uint8_t n)
+{
+    if (n < 1u || n > KEY_NUM)
+    {
+        return 0;
+    }
+    return (uint8_t)((key_stable >> (n - 1u)) & 1u);
+}
+
 uint8_t Key_Scan(void)
 {
     uint8_t raw     = Key_ReadRaw();
