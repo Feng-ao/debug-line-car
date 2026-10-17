@@ -182,6 +182,25 @@ void OLED_ShowString(uint8_t x, uint8_t page, const char *str)
     }
 }
 
+void OLED_ShowStringCenter(uint8_t page, const char *str)
+{
+    uint8_t len = 0;
+    uint8_t x;
+
+    while (str[len] != '\0') len++;      /* 按 6px/字符 算宽度 */
+
+    if ((uint16_t)len * 6u >= PAGE_W)
+    {
+        x = 0;
+    }
+    else
+    {
+        x = (uint8_t)((PAGE_W - len * 6u) / 2u);
+    }
+
+    OLED_ShowString(x, page, str);
+}
+
 void OLED_ShowNum(uint8_t x, uint8_t page, int32_t num, uint8_t len)
 {
     char buf[12];

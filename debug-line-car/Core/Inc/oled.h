@@ -15,6 +15,7 @@ void OLED_Update(void);                 /* 把显存刷到屏幕 */
 void OLED_UpdatePage(uint8_t page);     /* 只刷一页（0-7），用于局部刷新防闪烁 */
 void OLED_ShowChar(uint8_t x, uint8_t page, char ch);   /* x:0-127  page:0-7 */
 void OLED_ShowString(uint8_t x, uint8_t page, const char *str);
+void OLED_ShowStringCenter(uint8_t page, const char *str);   /* 按 6px 字宽居中 */
 void OLED_ShowNum(uint8_t x, uint8_t page, int32_t num, uint8_t len);
 
 #endif
