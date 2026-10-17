@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "oled.h"
 #include "key.h"
+#include "led.h"
 
 /* 赛题 1：OLED 多级菜单（主菜单 3 分 + 子菜单 3 分）
  *
@@ -35,6 +36,7 @@ typedef enum
 static MenuPage menu_page = PAGE_MAIN;
 static uint8_t  menu_cursor;      /* 当前箭头指向的行，0~3 */
 static uint8_t  menu_dirty;       /* 1 = 画面需要重绘 */
+static uint8_t  led_dirty;        /* 1 = 只重绘 LED 状态两行 */
 
 /* ---------------- 小工具 ---------------- */
 
@@ -87,11 +89,44 @@ static void Draw_Sub(void)
     OLED_Update();
 }
 
+/* 只改两行状态文字，不刷屏 */
+static void Draw_LedStatusText(void)
+{
+    OLED_ShowString(40, 3, LED1_IsOn() ? "ON " : "OFF");
+    OLED_ShowString(40, 4, LED2_IsOn() ? "ON " : "OFF");
+}
+
+/* 只刷新状态所在的两页（整屏刷新会闪） */
+static void Draw_LedStatus(void)
+{
+    Draw_LedStatusText();
+    OLED_UpdatePage(3);
+    OLED_UpdatePage(4);
+}
+
+/* 赛题 2：LED 控制子菜单 */
+static void Draw_Led(void)
+{
+    OLED_Clear();
+    ShowCenter(0, "LED CONTROL");
+    ShowCenter(1, "----------------");
+    OLED_ShowString(4, 3, "LED1:");
+    OLED_ShowString(4, 4, "LED2:");
+    OLED_ShowString(7, 6, "K1:ON/OFF  K2:BLINK");
+    ShowCenter(7, "K4:BACK");
+    Draw_LedStatusText();
+    OLED_Update();
+}
+
 static void Menu_Draw(void)
 {
     if (menu_page == PAGE_MAIN)
     {
         Draw_Main();
+    }
+    else if (menu_page == PAGE_LED)
+    {
+        Draw_Led();
     }
     else
     {
@@ -127,6 +162,30 @@ static void Menu_Key(uint8_t key)
                 break;
         }
     }
+    else if (menu_page == PAGE_LED)
+    {
+        switch (key)
+        {
+            case 1:     /* 常亮 / 常灭 来回切 */
+                LED_SetMode((LED_GetMode() == LED_MODE_ON) ? LED_MODE_OFF : LED_MODE_ON);
+                menu_dirty = 1;
+                break;
+
+            case 2:     /* 交替闪烁 */
+                LED_SetMode(LED_MODE_ALT);
+                menu_dirty = 1;
+                break;
+
+            case 4:     /* 返回主菜单，同时熄灭 */
+                LED_SetMode(LED_MODE_OFF);
+                menu_page  = PAGE_MAIN;
+                menu_dirty = 1;
+                break;
+
+            default:
+                break;
+        }
+    }
     else
     {
         if (key == 4)       /* 返回主菜单 */
@@ -142,9 +201,11 @@ static void Menu_Key(uint8_t key)
 void Menu_Init(void)
 {
     Key_Init();
+    LED_Init();
     menu_page   = PAGE_MAIN;
     menu_cursor = 0;        /* 上电默认箭头指向首行 */
     menu_dirty  = 1;
+    led_dirty   = 0;
     Menu_Draw();
 }
 
@@ -153,6 +214,12 @@ void Menu_Task(void)
     static uint32_t last_tick = 0;
     uint32_t        now       = HAL_GetTick();
     uint8_t         key;
+
+    /* LED 交替闪烁必须一直在跑，不受菜单刷新节奏影响 */
+    if (LED_Task())
+    {
+        led_dirty = 1;
+    }
 
     if ((now - last_tick) < MENU_TICK_MS)
     {
@@ -169,5 +236,11 @@ void Menu_Task(void)
     if (menu_dirty)
     {
         Menu_Draw();
+        led_dirty = 0;
+    }
+    else if (led_dirty && menu_page == PAGE_LED)
+    {
+        Draw_LedStatus();
+        led_dirty = 0;
     }
 }

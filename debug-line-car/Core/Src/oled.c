@@ -149,6 +149,21 @@ void OLED_Update(void)
     }
 }
 
+void OLED_UpdatePage(uint8_t page)
+{
+    uint8_t col;
+
+    if (page > PAGE_NUM - 1) return;
+
+    OLED_WriteCmd(0xB0 | page);
+    OLED_WriteCmd(0x00);
+    OLED_WriteCmd(0x10);
+    for (col = 0; col < PAGE_W; col++)
+    {
+        OLED_WriteDataByte(oled_gram[page][col]);
+    }
+}
+
 void OLED_ShowChar(uint8_t x, uint8_t page, char ch)
 {
     uint8_t i;
