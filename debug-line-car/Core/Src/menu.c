@@ -176,6 +176,27 @@ static void Track_DrawInfo(void)
     OLED_ShowNum(16, 6, Track_GetError(), 1);
     OLED_ShowString(62, 6, "L=");
     OLED_ShowNum(74, 6, Track_GetTurn(), 1);
+
+    OLED_ShowString(4, 4, "J:");
+    OLED_ShowNum(10, 4, Track_GetJuncIdx(), 1);
+
+    /* M: 最后一次压线位图；E: 触发最近一次拐角/路口时的位图（停车后看） */
+    {
+        uint8_t m = Track_GetLastMask();
+        uint8_t e = Track_GetEventMask();
+        char    hx[3];
+
+        OLED_ShowString(30, 4, "M:");
+        hx[0] = (m >> 4) < 10u ? (char)('0' + (m >> 4)) : (char)('A' + (m >> 4) - 10u);
+        hx[1] = (m & 0x0Fu) < 10u ? (char)('0' + (m & 0x0Fu)) : (char)('A' + (m & 0x0Fu) - 10u);
+        hx[2] = '\0';
+        OLED_ShowString(42, 4, hx);
+
+        OLED_ShowString(64, 4, "E:");
+        hx[0] = (e >> 4) < 10u ? (char)('0' + (e >> 4)) : (char)('A' + (e >> 4) - 10u);
+        hx[1] = (e & 0x0Fu) < 10u ? (char)('0' + (e & 0x0Fu)) : (char)('A' + (e & 0x0Fu) - 10u);
+        OLED_ShowString(76, 4, hx);
+    }
 }
 
 static void Draw_Track(void)
@@ -330,9 +351,10 @@ static void Menu_Key(uint8_t key)
             case 3:     /* 进入子菜单 */
                 menu_page  = (MenuPage)(PAGE_LED + menu_cursor);
                 menu_dirty = 1;
+
                 if (menu_page == PAGE_DEBUG)
                 {
-                    Buzzer_Beep(120);       /* 顺便验一下蜂鸣器 */
+                    Buzzer_Beep(120);             /* 顺便验一下蜂鸣器 */
                 }
                 break;
 
@@ -478,6 +500,18 @@ void Menu_Task(void)
     /* 巡线控制：10ms 一拍（内部不在跑就直接返回） */
     Track_Task();
 
+    /* 巡线状态变化（自动计圈停车 / 丢线保护停车）时，整页重绘一次，
+     * 否则底部提示还停留在“K4:STOP”，会让人以为车卡住了 */
+    {
+        static TrackState last_track_state = TRACK_IDLE;
+
+        if (Track_GetState() != last_track_state)
+        {
+            last_track_state = Track_GetState();
+            menu_dirty = 1;
+        }
+    }
+
     /* 拓展页 GOGOGO：蜂鸣 3 秒 -> 直行 */
     Gogogo_Task();
 
@@ -512,6 +546,7 @@ void Menu_Task(void)
             track_tick = now;
             Track_DrawInfo();
             OLED_UpdatePage(1);
+            OLED_UpdatePage(4);
             OLED_UpdatePage(5);
             OLED_UpdatePage(6);
         }
