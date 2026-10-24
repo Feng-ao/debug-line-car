@@ -449,6 +449,16 @@
               <FilePath>../Core/Src/track.c</FilePath>
             </File>
             <File>
+              <FileName>usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/usart.c</FilePath>
+            </File>
+            <File>
+              <FileName>remote.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/remote.c</FilePath>
+            </File>
+            <File>
               <FileName>gogogo.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/gogogo.c</FilePath>

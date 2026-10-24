@@ -200,4 +200,15 @@ void SysTick_Handler(void)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief  USART1 中断（CH340 / 蓝牙收发都走这里）
+  * @note   CubeMX 生成时没勾 NVIC，这段是手动补的，重新生成代码不会丢
+  */
+void USART1_IRQHandler(void)
+{
+  extern UART_HandleTypeDef huart1;
+
+  HAL_UART_IRQHandler(&huart1);
+}
+
 /* USER CODE END 1 */

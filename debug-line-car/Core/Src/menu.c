@@ -9,6 +9,7 @@
 #include "buzzer.h"
 #include "track.h"
 #include "gogogo.h"
+#include "remote.h"
 
 /* 赛题 1：OLED 多级菜单（主菜单 3 分 + 子菜单 3 分）
  *
@@ -39,13 +40,15 @@ typedef enum
     PAGE_INFO  = 2,
     PAGE_TRACK = 3,
     PAGE_EXT   = 4,
-    PAGE_DEBUG = 5
+    PAGE_DEBUG = 5,
+    PAGE_REMOTE = 6     /* 遥控页（从拓展菜单进） */
 } MenuPage;
 
 static MenuPage menu_page = PAGE_MAIN;
 static uint8_t  menu_cursor;      /* 当前箭头指向的行，0~3 */
 static uint8_t  menu_dirty;       /* 1 = 画面需要重绘 */
 static uint8_t  led_dirty;        /* 1 = 只重绘 LED 状态两行 */
+static uint8_t  ext_sel;          /* 拓展菜单选中的项：0=GOGOGO 1=REMOTE */
 
 /* ---------------- 小工具 ---------------- */
 
@@ -177,8 +180,8 @@ static void Track_DrawInfo(void)
     OLED_ShowString(62, 6, "L=");
     OLED_ShowNum(74, 6, Track_GetTurn(), 1);
 
-    OLED_ShowString(4, 4, "J:");
-    OLED_ShowNum(10, 4, Track_GetJuncIdx(), 1);
+    OLED_ShowString(4, 4, "R:");
+    OLED_ShowNum(10, 4, Track_GetHexState(), 1);
 
     /* M: 最后一次压线位图；E: 触发最近一次拐角/路口时的位图（停车后看） */
     {
@@ -268,9 +271,28 @@ static void Draw_Ext(void)
 {
     OLED_Clear();
     OLED_ShowStringCenter(0, "----- EXTEND -----");
-    OLED_ShowString(6, 2, "> GOGOGO");
+
+    OLED_ShowChar(6, 2, (ext_sel == 0) ? '>' : ' ');
+    OLED_ShowString(18, 2, "GOGOGO");
+    OLED_ShowChar(6, 3, (ext_sel == 1) ? '>' : ' ');
+    OLED_ShowString(18, 3, "REMOTE");
+
     Ext_DrawStatus();
-    OLED_ShowStringCenter(7, "K3:START K4:BACK");
+    OLED_ShowStringCenter(7, "K1/2:SET K3:OK");
+    OLED_Update();
+}
+
+/* 遥控页：显示当前运动状态（和上位机回执一致） */
+static void Draw_Remote(void)
+{
+    OLED_Clear();
+    OLED_ShowStringCenter(0, "---- REMOTE ----");
+    OLED_ShowString(4, 2, "38400 8N1 v3");
+    OLED_ShowString(4, 3, "F/B/L/R/S CMD");
+    OLED_ShowString(4, 4, "ST:");
+    OLED_ShowString(24, 4, Remote_GetStateStr());
+    OLED_ShowString(4, 5, "800ms NO CMD=STOP");
+    OLED_ShowStringCenter(7, "K4:BACK");
     OLED_Update();
 }
 
@@ -298,8 +320,7 @@ static void Debug_DrawLive(int16_t l, int16_t r)
 }
 
 static void Menu_Draw(void)
-{
-    if (menu_page == PAGE_MAIN)
+{    if (menu_page == PAGE_MAIN)
     {
         Draw_Main();
     }
@@ -318,6 +339,10 @@ static void Menu_Draw(void)
     else if (menu_page == PAGE_EXT)
     {
         Draw_Ext();
+    }
+    else if (menu_page == PAGE_REMOTE)
+    {
+        Draw_Remote();
     }
     else if (menu_page == PAGE_DEBUG)
     {
@@ -425,19 +450,43 @@ static void Menu_Key(uint8_t key)
     {
         switch (key)
         {
-            case 3:     /* 启动 GOGOGO */
-                Gogogo_Start();
+            case 1:
+            case 2:     /* 切换选中项 */
+                ext_sel    = (ext_sel == 0) ? 1 : 0;
+                menu_dirty = 1;
+                break;
+
+            case 3:     /* 进入选中项 */
+                if (ext_sel == 0)
+                {
+                    Gogogo_Start();
+                }
+                else
+                {
+                    Remote_Enter();
+                    menu_page = PAGE_REMOTE;
+                }
                 menu_dirty = 1;
                 break;
 
             case 4:     /* 中断并返回主菜单 */
                 Gogogo_Stop();
+                Remote_Exit();
                 menu_page  = PAGE_MAIN;
                 menu_dirty = 1;
                 break;
 
             default:
                 break;
+        }
+    }
+    else if (menu_page == PAGE_REMOTE)
+    {
+        if (key == 4)
+        {
+            Remote_Exit();
+            menu_page  = PAGE_MAIN;
+            menu_dirty = 1;
         }
     }
     else if (menu_page == PAGE_DEBUG)
@@ -568,6 +617,30 @@ void Menu_Task(void)
         {
             dbg_tick = now;
             Debug_DrawLive(l, r);
+        }
+    }
+
+    /* 赛题 3b/3c：信息页要跟着变量 a 变，200ms 重绘一次 */
+    if (menu_page == PAGE_INFO)
+    {
+        static uint32_t info_tick = 0;
+
+        if ((now - info_tick) >= 200u)
+        {
+            info_tick = now;
+            Info_DrawVar();          /* 只刷变量那一行，不闪屏 */
+        }
+    }
+
+    /* 遥控页：指令随时来，200ms 刷一次状态 */
+    if (menu_page == PAGE_REMOTE)
+    {
+        static uint32_t rm_tick = 0;
+
+        if ((now - rm_tick) >= 200u)
+        {
+            rm_tick = now;
+            Draw_Remote();
         }
     }
 

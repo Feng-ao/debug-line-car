@@ -24,6 +24,8 @@
 #include "oled.h"
 #include "key.h"
 #include "menu.h"
+#include "usart.h"
+#include "remote.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -111,6 +113,8 @@ int main(void)
   HAL_Delay(600);
 
   Menu_Init();                          /* 显示主菜单，箭头默认指首行 */
+
+  Usart_Init();                         /* 打开 USART1 接收中断（CH340 / 蓝牙） */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,6 +123,12 @@ int main(void)
   {
     /* 菜单 + 按键：内部 10ms 调度，不阻塞 */
     Menu_Task();
+
+    /* 串口命令：收到一整行就解析执行，不阻塞 */
+    Usart_Task();
+
+    /* 遥控超时保护：蓝牙掉线自动停车 */
+    Remote_Task();
 
     /* 板载绿灯心跳：闪=程序活着（非阻塞，500ms 翻转） */
     if ((HAL_GetTick() - hb_tick) >= 500u)
@@ -285,7 +295,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 38400;  /* HC-05 实测为 38400（不是常见的 9600），CH340 也用这个 */
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;

@@ -30,6 +30,7 @@ int32_t    Track_GetTurn(void);
 uint8_t    Track_GetJuncIdx(void);   /* 已经过了几个路口，调试用 */
 uint8_t    Track_GetLastMask(void);  /* 最后一次压线的位图，调试用 */
 uint8_t    Track_GetEventMask(void); /* 触发最近一次拐角/路口时的位图，停车后看 */
+uint8_t    Track_GetHexState(void);  /* 1 = 正在六边形环里 */
 
 /* 圈数：4b 跑一圈（1），4c 连跑两圈（2）；第二圈不停车，只在第一圈末尾响一声 */
 void       Track_SetLapTarget(uint8_t n);

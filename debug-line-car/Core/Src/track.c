@@ -63,6 +63,21 @@
 #define CORNER_CENTER_MASK 0x18u
 #define CORNER_MAX_DOTS      3
 
+/* ---- 六边形进环 ----
+ * 六边形顶点是个 Y 形岔口：主线继续直行会跳过整个六边形，必须主动左拐 30°。
+ * 判据只在"车已经直行一段时间"时才生效——拐角处车在转向或丢线，
+ * 直行计数会清零，所以不会误触发（这是上次翻车的教训）。 */
+#define HEX_ENABLE           1
+#define HEX_STRAIGHT_CNT    15   /* 连续多少帧直行才允许触发（×10ms） */
+#define HEX_CONFIRM          2   /* 连续几帧看到左分支才确认 */
+#define HEX_ENTER_MS       220   /* 进环时"往左带"的持续时间 */
+#define HEX_EXIT_MS        220   /* 出环时"往左带"的持续时间 */
+#define HEX_MIN_IN_MS      700   /* 进环后至少待这么久才开始判出环 */
+#define HEX_LEFT_SPD       200   /* 进/出环时的左轮速度 */
+#define HEX_RIGHT_SPD      700   /* 进/出环时的右轮速度 */
+#define HEX_LEFT_MASK     0x03u  /* X1/X2 */
+#define HEX_CENTER_MASK   0x18u  /* X4/X5 */
+
 /* 出弯稳定区：拐角之间距离很短（280~400mm），出弯后必须减速，
  * 让 PD 有足够多的控制周期把车身摆正，否则到下一个弯还是歪的 */
 #define CORNER_ZONE_MS     700   /* 出弯后这段时间内限速 */
@@ -131,6 +146,14 @@ static uint8_t    event_mask;    /* 触发拐角/路口那一刻的位图，停�
 static uint32_t   corner_end_ms; /* 拐角结束时刻，用于过弯补偿 */
 static int8_t     corner_bias_dir;
 
+/* 六边形进环状态 */
+static uint8_t    in_hex;        /* 1 = 已在六边形里 */
+static uint8_t    hex_cnt;       /* 左分支确认计数 */
+static uint8_t    straight_cnt;  /* 连续直行帧数 */
+static uint8_t    hex_act;       /* 0=无 1=进环拐 2=出环拐 */
+static uint32_t   hex_t0;
+static uint32_t   hex_in_ms;     /* 进环时刻 */
+
 void Track_Init(void){
     state      = TRACK_IDLE;
     elapsed_ms = 0;
@@ -161,13 +184,18 @@ void Track_Start(void)
     junc_cnt     = 0;
     junc_idx     = 0;
     junc_cool_ms = 0;
-    in_corner    = 0;
-    corner_phase = 0;
-    corner_t0    = 0;
+    in_corner      = 0;
+    corner_phase   = 0;
+    corner_t0      = 0;
     corner_phase_t = 0;
-    corner_dir   = 0;
-    corner_end_ms    = 0;
-    corner_bias_dir  = 0;
+    corner_dir     = 0;
+    corner_end_ms  = 0;
+    corner_bias_dir = 0;
+    in_hex         = 0;
+    hex_cnt        = 0;
+    straight_cnt   = 0;
+    hex_act        = 0;
+    hex_t0         = 0;
     elapsed_ms = 0;
     start_ms   = HAL_GetTick();
     state      = TRACK_RUN;
@@ -355,6 +383,81 @@ void Track_Task(void)
         }
         return;
     }
+
+    /* ---- 六边形进环（只在"直行中"生效，绝不干扰拐角）----
+     * 六边形顶点是 Y 形岔口：主线直行会跳过整个六边形，必须往左带一下。
+     * 判据：连续直行 ≥150ms，且当前同时看到"左边"和"正中"两段黑。 */
+#if HEX_ENABLE
+    {
+        int16_t e = Line_LastError();
+        uint8_t n = Line_OnCount();
+
+        if ((n >= 1) && (n <= CORNER_MAX_DOTS) && (e <= 150) && (e >= -150))
+        {
+            if (straight_cnt < 255) straight_cnt++;
+        }
+        else
+        {
+            straight_cnt = 0;
+        }
+    }
+
+    if (hex_act != 0)                       /* 正在往左带 */
+    {
+        Motor_Set(HEX_LEFT_SPD, HEX_RIGHT_SPD);
+
+        if ((HAL_GetTick() - hex_t0) >=
+            ((hex_act == 1) ? HEX_ENTER_MS : HEX_EXIT_MS))
+        {
+            hex_act  = 0;
+            last_err = 0;
+        }
+        return;
+    }
+
+    if (!in_hex && (straight_cnt >= HEX_STRAIGHT_CNT))
+    {
+        uint8_t on = Line_OnBits();
+
+        if (((on & HEX_LEFT_MASK) != 0) && ((on & HEX_CENTER_MASK) != 0))
+        {
+            if (++hex_cnt >= HEX_CONFIRM)
+            {
+                hex_cnt      = 0;
+                in_hex       = 1;
+                hex_act      = 1;
+                hex_t0       = HAL_GetTick();
+                hex_in_ms    = hex_t0;
+                straight_cnt = 0;
+            }
+        }
+        else
+        {
+            hex_cnt = 0;
+        }
+    }
+    else if (in_hex && ((HAL_GetTick() - hex_in_ms) > HEX_MIN_IN_MS))
+    {
+        uint8_t on = Line_OnBits();
+
+        /* 绕回顶点：线突然变宽，或又出现左分支 */
+        if ((Line_OnCount() >= 5) ||
+            (((on & HEX_LEFT_MASK) != 0) && ((on & HEX_CENTER_MASK) != 0)))
+        {
+            if (++hex_cnt >= HEX_CONFIRM)
+            {
+                hex_cnt = 0;
+                in_hex  = 0;
+                hex_act = 2;
+                hex_t0  = HAL_GetTick();
+            }
+        }
+        else
+        {
+            hex_cnt = 0;
+        }
+    }
+#endif
 
     /* ---- 直角/急弯 ----
      * 触发：整条线消失
@@ -613,4 +716,9 @@ uint8_t Track_GetLastMask(void)
 uint8_t Track_GetEventMask(void)
 {
     return event_mask;
+}
+
+uint8_t Track_GetHexState(void)
+{
+    return in_hex;
 }
