@@ -21,9 +21,18 @@ extern UART_HandleTypeDef huart1;
  * 这张图的角都是 R90 圆角、线是连续的，理论上不需要刹停原地转。
  * 先验证 PD 能不能自己跟过弯。 */
 #define CORNER_ENABLE       0
-#define LAP_UNIT     5000000    /* 一圈的转向积分阈值：待赛道标定！
-                                 * 标定方法：跑完一圈按 K4 停，把屏上 L= 的值填进来。
-                                 * 暂时给一个很大的值，避免没跑完就自动判圈停车。 */
+#define LAP_UNIT     5000000    /* 旧的转向积分阈值（已不用，保留备查） */
+
+/* 计圈改用"数全黑路口"：一次十字/丁字 = 一次全黑。
+ * 现场数过：第 5 次正好回到起点。 */
+#define LAP_FF_PER_LAP     99    /* 已弃用（计数有误差），改用下面的计时法 */
+#define LAP_FF_COOL_MS    400    /* 两次全黑之间的最小间隔，防止压黑时重复计数 */
+
+/* 计圈改用"计时法"：车速固定，一圈时长基本恒定。
+ * LAP_TIME_MS = 0 表示未标定（不启用）；标定方法：
+ *   跑完整一圈，到起点按 K4 停车，读屏上 T= 或日志里 T= 的秒数，
+ *   换算成毫秒填进来，再留 1~2% 余量。 */
+#define LAP_TIME_MS     178000   /* 实测一圈 178 秒（2026-10-30） */
 #define TRACK_INVERT_TURN   0    /* 发现越跑越偏就改成 1 */
 #define LOST_STOP_TICKS   100    /* 连续 1 秒看不到线就停车 */
 
@@ -81,7 +90,7 @@ extern UART_HandleTypeDef huart1;
 #define HEX_ENABLE           1
 #define HEX_STRAIGHT_MS    150   /* 环入口前必须是这么长的稳定直道 */
 #define HEX_ENTER_MS       300   /* 往左带多久 */
-#define HEX_COOL_MS      15000   /* 冷却：要盖住绕一圈的时间（实测 >6 秒），
+#define HEX_COOL_MS      25000   /* 冷却：要盖住绕一圈的时间（实测 >6 秒），
                                   * 但又要短于"第一个环到第二个环"的路程 */
 #define HEX_LEFT_SPD       150
 #define HEX_RIGHT_SPD      750
@@ -134,6 +143,7 @@ static int32_t    turn_acc;
 static uint16_t   lost_cnt;
 static uint8_t    lap_target = 1;
 static uint8_t    lap_done   = 0;
+static uint8_t    ff_cnt     = 0;   /* 已经过了几个"全黑路口" */
 
 /* 断路状态 */
 static uint8_t    in_gap;        /* 1 = 正在断路里直行 */
@@ -195,6 +205,7 @@ void Track_Start(void)
     turn_acc   = 0;
     lost_cnt   = 0;
     lap_done   = 0;
+    ff_cnt     = 0;
     in_gap     = 0;
     gap_cnt    = 0;
     last_on_mask = 0;
@@ -612,7 +623,7 @@ void Track_Task(void)
         if ((HAL_GetTick() - tele_tick) >= 100u)
         {
             static const char hexc[] = "0123456789ABCDEF";
-            char    buf[40];
+            char    buf[64];
             uint8_t p   = 0;
             uint8_t on  = Line_OnBits();
             int32_t v   = err;
@@ -635,6 +646,36 @@ void Track_Task(void)
             buf[p++] = 'R'; buf[p++] = '='; buf[p++] = (char)(0x30 + hex_act);
             buf[p++] = ' ';
             buf[p++] = 'P'; buf[p++] = '='; buf[p++] = (char)('0' + corner_phase);
+
+            /* L = 转向积分（旧方案，留作参考）；F = 已过的全黑路口数（计圈用） */
+            buf[p++] = ' ';
+            buf[p++] = 'F'; buf[p++] = '=';
+            if (ff_cnt >= 100u) buf[p++] = (char)('0' + (ff_cnt / 100u));
+            if (ff_cnt >= 10u)  buf[p++] = (char)('0' + ((ff_cnt / 10u) % 10u));
+            buf[p++] = (char)('0' + (ff_cnt % 10u));
+            buf[p++] = ' ';
+            buf[p++] = 'L'; buf[p++] = '=';
+            {
+                int32_t lv = turn_acc;
+                char    lt[12];
+                uint8_t ln = 0;
+
+                if (lv < 0) { buf[p++] = '-'; lv = -lv; }
+                do { lt[ln++] = (char)('0' + (lv % 10)); lv /= 10; } while (lv && ln < 12u);
+                while (ln) { buf[p++] = lt[--ln]; }
+            }
+
+            buf[p++] = ' ';
+            buf[p++] = 'T'; buf[p++] = '=';
+            {
+                uint32_t sec = elapsed_ms / 1000u;
+                char     st[8];
+                uint8_t  sn = 0;
+
+                do { st[sn++] = (char)('0' + (sec % 10u)); sec /= 10u; } while (sec && sn < 8u);
+                while (sn) { buf[p++] = st[--sn]; }
+            }
+
             buf[p++] = '\r'; buf[p++] = '\n';
 
             HAL_UART_Transmit(&huart1, (uint8_t *)buf, p, 50);
@@ -727,22 +768,49 @@ void Track_Task(void)
     /* 转向积分：直道左右轮速差为 0，弯道才累积，绕回一周约等于 360 度 */
     turn_acc += (int32_t)(right - left);
 
-    /* 每满一圈判定一次：最后一圈停车，前面几圈只响一声继续跑（赛题 4c） */
+    /* ---- 计圈：数"八路全黑"的路口 ----
+     * 每个十字/丁字都会出现一次全黑，现场数过：第 5 次正好回到起点。
+     * 必须做边沿计数——压在全黑上会连续出现好几帧，不能每帧都算一次。 */
     {
-        int32_t next_lap = (int32_t)LAP_UNIT * (int32_t)(lap_done + 1u);
+        static uint32_t ff_cool_ms = 0;
+        uint32_t        now_ms     = HAL_GetTick();
 
-        if ((turn_acc >= next_lap) || (turn_acc <= -next_lap))
+        if ((Line_OnCount() >= 7) &&
+            ((now_ms - ff_cool_ms) > LAP_FF_COOL_MS))
         {
-            lap_done++;
-            if (lap_done >= lap_target)
+            ff_cool_ms = now_ms;
+            ff_cnt++;
+
+            /* 计时 + 特征双重校验：
+             * 全黑事件只有落在"本圈预期时长的 92%~108%"窗口内才算一圈。
+             * 方框、七边形那些拐角都在这之前，不会被误计。 */
+            if ((LAP_TIME_MS > 0u) && (lap_done < lap_target))
             {
-                Track_Stop();
-            }
-            else
-            {
-                Buzzer_Beep(150);
+                uint32_t gate_lo = (uint32_t)(((uint32_t)LAP_TIME_MS * (uint32_t)(lap_done + 1u) * 95u) / 100u);
+                uint32_t gate_hi = (uint32_t)(((uint32_t)LAP_TIME_MS * (uint32_t)(lap_done + 1u) * 107u) / 100u);
+
+                if ((elapsed_ms >= gate_lo) && (elapsed_ms <= gate_hi))
+                {
+                    lap_done++;
+                    if (lap_done >= lap_target)
+                    {
+                        Track_Stop();
+                    }
+                    else
+                    {
+                        Buzzer_Beep(150);       /* 4c：第一圈只响一声，不停车 */
+                    }
+                }
             }
         }
+    }
+
+    /* 兜底：跑到"目标圈数 × 一圈时长"的 115% 还没计到圈，强制停车 */
+    if ((LAP_TIME_MS > 0u) &&
+        (elapsed_ms >= (uint32_t)(((uint32_t)LAP_TIME_MS * (uint32_t)lap_target * 115u) / 100u)) &&
+        (lap_done < lap_target))
+    {
+        Track_Stop();
     }
 }
 
