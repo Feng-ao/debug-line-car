@@ -3,17 +3,24 @@
 #include "motor.h"
 #include "buzzer.h"
 
+extern UART_HandleTypeDef huart1;
+
 /* 赛题 4b：巡线一圈
  * 控制律：偏差 PD -> 差速转向
  * 计圈：左右轮速差对时间积分，绝对值超过 LAP_UNIT 判定跑满一圈
  */
 
-#define BASE_SPEED        500    /* 直道速度，0~1000 */
-#define KP_NUM             90    /* 比例：偏差 * 0.90 */
-#define KD_NUM            140    /* 微分：偏差变化 * 1.40 */
+#define BASE_SPEED        260    /* 直道速度：先求跑通，不求快 */
+#define KP_NUM            110    /* 比例：偏差 * 1.10 */
+#define KD_NUM            160    /* 微分：偏差变化 * 1.60 */
 #define TURN_LIMIT        900    /* 转向量上限，允许内侧轮反转，急弯才能咬住 */
-#define CURVE_SLOW_DIV      6    /* 偏差每 6 点，整体速度降 1 点（弯里自动减速） */
-#define SPEED_MIN         260    /* 转向时最低速度 */
+#define CURVE_SLOW_DIV      4    /* 偏差每 4 点，整体速度降 1 点 */
+#define SPEED_MIN         200    /* 转向时最低速度 */
+
+/* 拐角逻辑总开关：0 = 完全交给 PD 跟线。
+ * 这张图的角都是 R90 圆角、线是连续的，理论上不需要刹停原地转。
+ * 先验证 PD 能不能自己跟过弯。 */
+#define CORNER_ENABLE       0
 #define LAP_UNIT     5000000    /* 一圈的转向积分阈值：待赛道标定！
                                  * 标定方法：跑完一圈按 K4 停，把屏上 L= 的值填进来。
                                  * 暂时给一个很大的值，避免没跑完就自动判圈停车。 */
@@ -27,6 +34,9 @@
 #define GAP_RECOVER_MS    250    /* 出断路后的抑制时间 */
 #define GAP_RECOVER_TURN  350    /* 抑制期内最大转向量，防止接上线瞬间画圈 */
 #define GAP_ERR_MAX       250    /* 断路判定：丢线前的偏差必须很小 */
+#define GAP_STRAIGHT_MS   300    /* 断路判定：丢线前必须已经稳定直行这么久。
+                                  * 真断路前面是长直道；小方框拐角是刚拐完就丢线，
+                                  * 没有稳定直行 —— 用它把两者分开 */
 #define GAP_MAX_BITS        2    /* 断路判定：最后一刻压线的路数上限。
                                   * 18mm 的线正常只覆盖 1~2 路；3 路以上说明是一团黑
                                   * （拐角/路口），不是断口 */
@@ -64,26 +74,29 @@
 #define CORNER_MAX_DOTS      3
 
 /* ---- 六边形进环 ----
- * 六边形顶点是个 Y 形岔口：主线继续直行会跳过整个六边形，必须主动左拐 30°。
- * 判据只在"车已经直行一段时间"时才生效——拐角处车在转向或丢线，
- * 直行计数会清零，所以不会误触发（这是上次翻车的教训）。 */
+ * 关键：这台车直线时是 X3/X4 压线（E≈-200），不能再用 |偏差| 判断直行，
+ * 改成用"压线路数"判断：1~2 路 = 干净直线；3~4 路 = 出现分叉。
+ * 分叉要连续 3 帧才算 Y 形岔口（环入口）；如果 2 帧内冲到 ≥5 路，
+ * 那是直角/丁字的一团黑，放弃，交给拐角逻辑。 */
 #define HEX_ENABLE           1
-#define HEX_STRAIGHT_CNT    15   /* 连续多少帧直行才允许触发（×10ms） */
-#define HEX_CONFIRM          2   /* 连续几帧看到左分支才确认 */
-#define HEX_ENTER_MS       220   /* 进环时"往左带"的持续时间 */
-#define HEX_EXIT_MS        220   /* 出环时"往左带"的持续时间 */
-#define HEX_MIN_IN_MS      700   /* 进环后至少待这么久才开始判出环 */
-#define HEX_LEFT_SPD       200   /* 进/出环时的左轮速度 */
-#define HEX_RIGHT_SPD      700   /* 进/出环时的右轮速度 */
-#define HEX_LEFT_MASK     0x03u  /* X1/X2 */
-#define HEX_CENTER_MASK   0x18u  /* X4/X5 */
+#define HEX_STRAIGHT_MS    150   /* 环入口前必须是这么长的稳定直道 */
+#define HEX_ENTER_MS       300   /* 往左带多久 */
+#define HEX_COOL_MS      15000   /* 冷却：要盖住绕一圈的时间（实测 >6 秒），
+                                  * 但又要短于"第一个环到第二个环"的路程 */
+#define HEX_LEFT_SPD       150
+#define HEX_RIGHT_SPD      750
 
 /* 出弯稳定区：拐角之间距离很短（280~400mm），出弯后必须减速，
  * 让 PD 有足够多的控制周期把车身摆正，否则到下一个弯还是歪的 */
-#define CORNER_ZONE_MS     700   /* 出弯后这段时间内限速 */
-#define CORNER_ZONE_SPEED  330   /* 限速值 */
+#define CORNER_ZONE_MS     900   /* 出弯后这段时间内限速（覆盖短间距段） */
+#define CORNER_ZONE_SPEED  290   /* 限速值（小方框 225×280 全靠它压住） */
 #define CORNER_FAST_KP     130   /* 出弯后短时间内的强纠偏 KP */
 #define CORNER_FAST_KP_MS  280
+
+/* 调试遥测：跑的时候每 100ms 从串口吐一行 M/E/R/阶段，
+ * 车跑完把手机终端的内容发我，就能知道它到底看到了什么。
+ * 只输出，不参与控制，关掉只需改成 0。 */
+#define TELEM_ENABLE        1
 
 /* 过弯补偿：拐正之后继续朝拐弯方向多打一点，抵消机械间隙 */
 #define CORNER_BIAS         80
@@ -127,6 +140,8 @@ static uint8_t    in_gap;        /* 1 = 正在断路里直行 */
 static uint8_t    gap_cnt;       /* 连续全白帧数 */
 static uint32_t   gap_t0;
 static uint8_t    last_on_mask;  /* 最后一次压线时的传感器位图 */
+static int16_t    last_good_err; /* 最后一次压线时的偏差（丢线后不再更新） */
+static uint16_t   straightMs;    /* 已经稳定直行了多少毫秒 */
 static uint32_t   gap_exit_ms;   /* 刚出断路的时间，用于短时间内抑制猛打舵 */
 
 /* 路口状态 */
@@ -139,6 +154,8 @@ static uint8_t    junc_idx;      /* 已经过了几个路口 */
 /* 直角锁定 */
 static uint8_t    in_corner;
 static uint8_t    corner_phase;  /* 0=刹停 1=原地转 2=停稳复查 */
+static uint8_t    edge_cnt;      /* |偏差| ≥ 500 的连续帧数 */
+static uint8_t    corner_fix_cnt;/* 本次拐弯已经修正了几次 */
 static uint32_t   corner_t0;
 static uint32_t   corner_phase_t;
 static int8_t     corner_dir;
@@ -148,11 +165,13 @@ static int8_t     corner_bias_dir;
 
 /* 六边形进环状态 */
 static uint8_t    in_hex;        /* 1 = 已在六边形里 */
-static uint8_t    hex_cnt;       /* 左分支确认计数 */
-static uint8_t    straight_cnt;  /* 连续直行帧数 */
+static uint8_t    hex_cnt;       /* 出环确认计数 */
+static uint8_t    clean_cnt;     /* 干净直道的衰减计数（1~2 路） */
+static uint8_t    probe_cnt;     /* 3~4 路的连续帧数 */
 static uint8_t    hex_act;       /* 0=无 1=进环拐 2=出环拐 */
 static uint32_t   hex_t0;
 static uint32_t   hex_in_ms;     /* 进环时刻 */
+static uint32_t   hex_cool_ms;   /* 上次进环动作的时间（冷却用） */
 
 void Track_Init(void){
     state      = TRACK_IDLE;
@@ -179,6 +198,7 @@ void Track_Start(void)
     in_gap     = 0;
     gap_cnt    = 0;
     last_on_mask = 0;
+    last_good_err = 0;
     gap_exit_ms  = 0;
     in_junc      = 0;
     junc_cnt     = 0;
@@ -186,6 +206,7 @@ void Track_Start(void)
     junc_cool_ms = 0;
     in_corner      = 0;
     corner_phase   = 0;
+    corner_fix_cnt = 0;
     corner_t0      = 0;
     corner_phase_t = 0;
     corner_dir     = 0;
@@ -193,9 +214,13 @@ void Track_Start(void)
     corner_bias_dir = 0;
     in_hex         = 0;
     hex_cnt        = 0;
-    straight_cnt   = 0;
+    clean_cnt      = 0;
+    probe_cnt      = 0;
     hex_act        = 0;
     hex_t0         = 0;
+    /* 让冷却"已过期"：否则上电后 6 秒内进环判据全部失效，
+     * 从六边形前面直接发车时会撞在这个盲区里 */
+    hex_cool_ms    = HAL_GetTick() - (uint32_t)HEX_COOL_MS;
     elapsed_ms = 0;
     start_ms   = HAL_GetTick();
     state      = TRACK_RUN;
@@ -331,7 +356,27 @@ void Track_Task(void)
         uint8_t on = Line_OnBits();
         if (on != 0)
         {
-            last_on_mask = on;
+            last_on_mask  = on;
+            /* 关键：丢线后 Line_Error() 会返回 ±700，这里只在线还在时更新，
+             * 否则断路判据里的"偏差必须很小"第一帧之后就不成立了 */
+            last_good_err = Line_Error();
+
+            /* 累计"稳定直行"时长：偏差小、压线少 */
+            if ((last_good_err <= GAP_ERR_MAX) && (last_good_err >= -GAP_ERR_MAX) &&
+                (PopCount8(on) <= GAP_MAX_BITS))
+            {
+                if (straightMs < 60000u) straightMs += 10u;
+            }
+            else
+            {
+                straightMs = 0;
+            }
+        }
+        else
+        {
+            /* 丢线时不立刻清零：断路判据要用"丢线前"的直行时长。
+             * 让它按帧衰减，2 帧之内仍然有效（恰好够 GAP_CONFIRM_TICKS）。 */
+            straightMs = (straightMs > 80u) ? (uint16_t)(straightMs - 80u) : 0u;
         }
     }
 
@@ -345,8 +390,9 @@ void Track_Task(void)
              *   3) 最后一刻压线的路数 ≤2（线是窄的；3 路以上是一团黑 = 拐角）
              *   4) 连续几帧全白（防抖） */
             if (((last_on_mask & 0x3Cu) != 0) &&
-                (last_err <= GAP_ERR_MAX) &&
-                (last_err >= -GAP_ERR_MAX) &&
+                (straightMs >= GAP_STRAIGHT_MS) &&
+                (last_good_err <= GAP_ERR_MAX) &&
+                (last_good_err >= -GAP_ERR_MAX) &&
                 (PopCount8(last_on_mask) <= GAP_MAX_BITS))
             {
                 if (++gap_cnt >= GAP_CONFIRM_TICKS)
@@ -388,69 +434,42 @@ void Track_Task(void)
      * 六边形顶点是 Y 形岔口：主线直行会跳过整个六边形，必须往左带一下。
      * 判据：连续直行 ≥150ms，且当前同时看到"左边"和"正中"两段黑。 */
 #if HEX_ENABLE
-    {
-        int16_t e = Line_LastError();
-        uint8_t n = Line_OnCount();
-
-        if ((n >= 1) && (n <= CORNER_MAX_DOTS) && (e <= 150) && (e >= -150))
-        {
-            if (straight_cnt < 255) straight_cnt++;
-        }
-        else
-        {
-            straight_cnt = 0;
-        }
-    }
-
-    if (hex_act != 0)                       /* 正在往左带 */
+    /* 正在往左带（进环动作） */
+    if (hex_act != 0)
     {
         Motor_Set(HEX_LEFT_SPD, HEX_RIGHT_SPD);
 
-        if ((HAL_GetTick() - hex_t0) >=
-            ((hex_act == 1) ? HEX_ENTER_MS : HEX_EXIT_MS))
+        if ((HAL_GetTick() - hex_t0) >= HEX_ENTER_MS)
         {
-            hex_act  = 0;
-            last_err = 0;
+            hex_act     = 0;
+            last_err    = 0;
+            hex_cool_ms = HAL_GetTick();      /* 冷却，防止在出口又触发一次 */
         }
         return;
     }
 
-    if (!in_hex && (straight_cnt >= HEX_STRAIGHT_CNT))
+    /* 环入口判据（数据实测）：
+     *   1) 前面必须是稳定长直道（弯道不可能满足，用 straightMs 当闸门）
+     *   2) 左侧（X1/X2）突然有黑 —— 六边形的斜边插进阵列
+     *   3) 中间那条主线还在（X4/X5 有黑）
+     * 连续 2 帧确认，然后往左带一下就走，不做状态机。 */
+    if ((HAL_GetTick() - hex_cool_ms) > HEX_COOL_MS)
     {
         uint8_t on = Line_OnBits();
 
-        if (((on & HEX_LEFT_MASK) != 0) && ((on & HEX_CENTER_MASK) != 0))
+        /* 实测：M=63 / M=61（两端有黑、中间白）整份日志只出现在环岔口，
+         * 共 4 帧，特征本身就足够独特 —— 不再加"直行闸门"，
+         * 因为岔口前几帧就是 3~4 路宽，闸门会被清零。 */
+        if (((on & 0x07u) != 0) &&      /* 左端有黑（X1~X3） */
+            ((on & 0xE0u) != 0) &&      /* 右端有黑（X6~X8） */
+            ((on & 0x1Cu) == 0))        /* 中间全白（X3~X5）—— V 形岔口；
+                                         * 十字的 0xFF 会被这条排除 */
         {
-            if (++hex_cnt >= HEX_CONFIRM)
-            {
-                hex_cnt      = 0;
-                in_hex       = 1;
-                hex_act      = 1;
-                hex_t0       = HAL_GetTick();
-                hex_in_ms    = hex_t0;
-                straight_cnt = 0;
-            }
-        }
-        else
-        {
+            /* 实测：整份日志里"X1/X2 有黑"只出现 1 次（M=19），
+             * 特征是稀有的，单帧即可确认，不必等 2 帧 */
             hex_cnt = 0;
-        }
-    }
-    else if (in_hex && ((HAL_GetTick() - hex_in_ms) > HEX_MIN_IN_MS))
-    {
-        uint8_t on = Line_OnBits();
-
-        /* 绕回顶点：线突然变宽，或又出现左分支 */
-        if ((Line_OnCount() >= 5) ||
-            (((on & HEX_LEFT_MASK) != 0) && ((on & HEX_CENTER_MASK) != 0)))
-        {
-            if (++hex_cnt >= HEX_CONFIRM)
-            {
-                hex_cnt = 0;
-                in_hex  = 0;
-                hex_act = 2;
-                hex_t0  = HAL_GetTick();
-            }
+            hex_act = 1;
+            hex_t0  = HAL_GetTick();
         }
         else
         {
@@ -530,7 +549,21 @@ void Track_Task(void)
                     if (e > 50)       corner_dir = 1;
                     else if (e < -50) corner_dir = -1;
 
-                    corner_phase = 1;
+                    /* 方框这种小环境里会反复修正，最多 3 次就撒手，
+                     * 否则会原地打转出不来 */
+                    if (corner_fix_cnt < 3)
+                    {
+                        corner_fix_cnt++;
+                        corner_phase = 1;
+                    }
+                    else
+                    {
+                        in_corner       = 0;
+                        last_err        = e;
+                        corner_end_ms   = now;
+                        corner_bias_dir = corner_dir;
+                        corner_fix_cnt  = 0;
+                    }
                 }
             }
         }
@@ -542,10 +575,11 @@ void Track_Task(void)
         }
         return;
     }
-    else if (Line_OnCount() == 0)
+    else if (CORNER_ENABLE && ((Line_OnCount() == 0) || (edge_cnt >= 2)))
     {
         in_corner      = 1;
         corner_phase   = 0;
+        corner_fix_cnt = 0;
         corner_dir     = Track_LastDir();
         corner_t0      = HAL_GetTick();
         corner_phase_t = corner_t0;
@@ -557,6 +591,56 @@ void Track_Task(void)
 
     err   = Line_Error();
     delta = (int16_t)(err - last_err);
+
+    /* 线快跑到阵列边上了（|偏差| ≥ 500）：
+     * 实测这台车"全白"几乎不会出现，靠 n==0 触发拐角等于永远不触发。
+     * 改用"偏差饱和"当拐角信号 —— 遥测里所有冲出去之前都是这个特征。 */
+    if ((err >= 500) || (err <= -500))
+    {
+        if (edge_cnt < 200) edge_cnt++;
+    }
+    else
+    {
+        edge_cnt = 0;
+    }
+
+    /* 每 100ms 吐一行轨迹数据：位图 / 偏差 / 是否在环 / 拐弯阶段 */
+#if TELEM_ENABLE
+    {
+        static uint32_t tele_tick = 0;
+
+        if ((HAL_GetTick() - tele_tick) >= 100u)
+        {
+            static const char hexc[] = "0123456789ABCDEF";
+            char    buf[40];
+            uint8_t p   = 0;
+            uint8_t on  = Line_OnBits();
+            int32_t v   = err;
+            char    tmp[8];
+            uint8_t tn  = 0;
+
+            tele_tick = HAL_GetTick();
+
+            buf[p++] = 'M'; buf[p++] = '=';
+            buf[p++] = hexc[(on >> 4) & 0x0Fu];
+            buf[p++] = hexc[on & 0x0Fu];
+            buf[p++] = ' ';
+            buf[p++] = 'E'; buf[p++] = '=';
+
+            if (v < 0) { buf[p++] = '-'; v = -v; }
+            do { tmp[tn++] = (char)('0' + (v % 10)); v /= 10; } while (v && tn < 8u);
+            while (tn) { buf[p++] = tmp[--tn]; }
+
+            buf[p++] = ' ';
+            buf[p++] = 'R'; buf[p++] = '='; buf[p++] = (char)(0x30 + hex_act);
+            buf[p++] = ' ';
+            buf[p++] = 'P'; buf[p++] = '='; buf[p++] = (char)('0' + corner_phase);
+            buf[p++] = '\r'; buf[p++] = '\n';
+
+            HAL_UART_Transmit(&huart1, (uint8_t *)buf, p, 50);
+        }
+    }
+#endif
     last_err = err;
 
     /* 出弯后短时间内用更强的 KP，快速把车身拉正 */
@@ -613,7 +697,7 @@ void Track_Task(void)
 
         if (base < SPEED_MIN) base = SPEED_MIN;
 
-        /* 出弯稳定区：刚拐完的 700ms 内限速，先把姿态摆正再提速 */
+        /* 出弯稳定区：刚拐完的 900ms 内限速，先把姿态摆正再提速 */
         if (((HAL_GetTick() - corner_end_ms) < CORNER_ZONE_MS) && (base > CORNER_ZONE_SPEED))
         {
             base = CORNER_ZONE_SPEED;
@@ -720,5 +804,5 @@ uint8_t Track_GetEventMask(void)
 
 uint8_t Track_GetHexState(void)
 {
-    return in_hex;
+    return hex_act;      /* 和串口日志里的 R= 保持一致 */
 }
