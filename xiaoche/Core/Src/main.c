@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -53,6 +54,24 @@ int led_on = 0;
 unsigned int led_tick = 0;
 char rxbuf[20];
 int rxlen = 0;
+int x[8];
+int pian_cha = 0;
+int shang_ci = 0;
+int zhi_dao = 0;
+int zhi_xing_ms = 0;
+int huan_zuo_ms = 0;
+int guo_du_ms = 0;
+int diu_cnt = 0;
+int bai_cnt = 0;
+int fang_xiang = 0;
+int zhong_lu = 0;
+unsigned int huan_leng = 0;
+int pao = 0;
+unsigned int kai_shi = 0;
+unsigned int shang_ci_fa = 0;
+unsigned int shang_ci_shua = 0;
+unsigned int shang_ci_kong = 0;
+int tiaoshi = 1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,7 +90,6 @@ void Xianshi_Zhucaidan(void);
 void Xianshi_LED(void);
 void Xianshi_LEDZhuangtai(void);
 void Xianshi_Xinxi(void);
-void Xianshi_Jianyi(void);
 void Xianshi_Tuozhan(void);
 void LED_QuanLiang(void);
 void LED_QuanMie(void);
@@ -82,6 +100,52 @@ void FaSong(char *s);
 void FaSongShu(int n);
 void FanZhuan_Fasong(char *s, int len, int f);
 int ZhuanShuzi(char *s);
+void Chuanganqi_Duqu(void);
+int Piancha_Jisuan(void);
+void Dianji_Zuo(int v);
+void Dianji_You(int v);
+void Dianji_Ting(void);
+int QuanBai(void);
+int YaLu_LuShu(void);
+int Duanlu_Chuli(void);
+int ZhiXing_Pao(void);
+int Liubian_Chuli(void);
+int Zhuanliang_Jisuan(int e);
+int GuoDu_XianZhi(int zhuan);
+int Sudu_Jisuan(int e);
+void Jiquan_Chuli(void);
+void Jilu_ZhongLu(void)
+{
+  if (YaLu_LuShu() == 0) { return; }
+  if (x[2] == 1 || x[3] == 1 || x[4] == 1 || x[5] == 1) { zhong_lu = 1; }
+  else { zhong_lu = 0; }
+}
+
+void DiuXian_Chuli(void)
+{
+  if (zhi_xing_ms > 0)
+  {
+    diu_cnt = 0;
+    return;
+  }
+  if (QuanBai() == 1) { diu_cnt = diu_cnt + 1; }
+  else { diu_cnt = 0; }
+  if (diu_cnt > 100)
+  {
+    pao = 0;
+    Dianji_Ting();
+  }
+}
+
+void Jilu_ZhongLu(void);
+void DiuXian_Chuli(void);
+void Xunji_Run(void);
+void Fengming(int ms);
+void Xianshi_Chuanganqi(void);
+void Xianshi_Xunji(void);
+void Xianshi_Shuju(void);
+void Tiaoshi_Fasong(void);
+void Xunji_AnJian(int k);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,10 +182,16 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_TIM3_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   LED_QuanMie();
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+  Dianji_Ting();
   OLED_Init();
+  kai_shi = HAL_GetTick();
   OLED_Clear();
   Xianshi_Zhucaidan();
   /* USER CODE END 2 */
@@ -133,9 +203,23 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    Chuanganqi_Duqu();
     ChuanKou_Chuli();
     AnJian_Chuli();
     LED_Shanshuo();
+    if (pao == 1)
+    {
+      if (HAL_GetTick() - shang_ci_kong >= 10)
+      {
+        shang_ci_kong = HAL_GetTick();
+        Xunji_Run();
+      }
+    }
+    if (menu == 3)
+    {
+      Xianshi_Shuju();
+    }
+    Tiaoshi_Fasong();
   }
   /* USER CODE END 3 */
 }
@@ -193,25 +277,14 @@ void AnJian_Chuli(void)
 {
   int k = AnJian_Duqu();
 
-  if (k == 0)
+  if (k == 0) { return; }
+  if (menu == 0) { Zhucaidan_AnJian(k); return; }
+  if (menu == 1) { LED_AnJian(k); return; }
+  if (menu == 3) { Xunji_AnJian(k); return; }
+  if (k == 4)
   {
-    return;
-  }
-  if (menu == 0)
-  {
-    Zhucaidan_AnJian(k);
-  }
-  else if (menu == 1)
-  {
-    LED_AnJian(k);
-  }
-  else
-  {
-    if (k == 4)
-    {
-      menu = 0;
-      Xianshi_Zhucaidan();
-    }
+    menu = 0;
+    Xianshi_Zhucaidan();
   }
 }
 
@@ -255,7 +328,7 @@ void Jinru_Caidan(void)
 {
   if (arrow == 0) { menu = 1; Xianshi_LED(); }
   if (arrow == 1) { menu = 2; Xianshi_Xinxi(); }
-  if (arrow == 2) { menu = 3; Xianshi_Jianyi(); }
+  if (arrow == 2) { menu = 3; Xianshi_Xunji(); }
   if (arrow == 3) { menu = 4; Xianshi_Tuozhan(); }
 }
 
@@ -309,14 +382,8 @@ void LED_QuanMie(void)
 
 void LED_Shanshuo(void)
 {
-  if (led_mode != 2)
-  {
-    return;
-  }
-  if (HAL_GetTick() - led_tick < 500)
-  {
-    return;
-  }
+  if (led_mode != 2) { return; }
+  if (HAL_GetTick() - led_tick < 500) { return; }
   led_tick = HAL_GetTick();
   led_on = !led_on;
   if (led_on)
@@ -392,14 +459,6 @@ void Xianshi_Xinxi(void)
   OLED_ShowString(16, 2, "ID: 32602156");
   OLED_ShowString(20, 4, "A = ");
   OLED_ShowNum(52, 4, a, 4, 16);
-  OLED_ShowString(32, 6, "K4: BACK");
-}
-
-void Xianshi_Jianyi(void)
-{
-  OLED_Clear();
-  OLED_ShowString(44, 0, "XUNJI");
-  OLED_ShowString(20, 2, "COMING SOON");
   OLED_ShowString(32, 6, "K4: BACK");
 }
 
@@ -519,6 +578,323 @@ int ZhuanShuzi(char *s)
     i = i + 1;
   }
   return n * f;
+}
+
+void Chuanganqi_Duqu(void)
+{
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12) == 0) { x[0] = 1; } else { x[0] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == 0) { x[1] = 1; } else { x[1] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14) == 0) { x[2] = 1; } else { x[2] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15) == 0) { x[3] = 1; } else { x[3] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_8) == 0) { x[4] = 1; } else { x[4] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9) == 0) { x[5] = 1; } else { x[5] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) == 0) { x[6] = 1; } else { x[6] = 0; }
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == 0) { x[7] = 1; } else { x[7] = 0; }
+}
+
+int Piancha_Jisuan(void)
+{
+  int i;
+  int n = 0;
+  int he = 0;
+
+  for (i = 0; i < 8; i++)
+  {
+    if (x[i] == 1)
+    {
+      he = he + (i * 2 - 7);
+      n = n + 1;
+    }
+  }
+  if (n == 0)
+  {
+    if (fang_xiang > 0) { return 700; }
+    if (fang_xiang < 0) { return -700; }
+    return pian_cha;
+  }
+  pian_cha = he * 100 / n;
+  if (pian_cha > 300) { fang_xiang = 1; }
+  if (pian_cha < -300) { fang_xiang = -1; }
+  return pian_cha;
+}
+
+void Dianji_Zuo(int v)
+{
+  if (v >= 0)
+  {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
+  }
+  else
+  {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+  }
+  if (v < 0) { v = -v; }
+  if (v > 999) { v = 999; }
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, v);
+}
+
+void Dianji_You(int v)
+{
+  if (v >= 0)
+  {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+  }
+  else
+  {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
+  }
+  if (v < 0) { v = -v; }
+  if (v > 999) { v = 999; }
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, v);
+}
+
+void Dianji_Ting(void)
+{
+  Dianji_Zuo(0);
+  Dianji_You(0);
+}
+
+int QuanBai(void)
+{
+  int i;
+
+  for (i = 0; i < 8; i++)
+  {
+    if (x[i] == 1) { return 0; }
+  }
+  return 1;
+}
+
+int YaLu_LuShu(void)
+{
+  int i;
+  int n = 0;
+
+  for (i = 0; i < 8; i++)
+  {
+    if (x[i] == 1) { n = n + 1; }
+  }
+  return n;
+}
+
+int Duanlu_Chuli(void)
+{
+  if (zhi_xing_ms > 0) { return ZhiXing_Pao(); }
+  if (QuanBai() == 1) { bai_cnt = bai_cnt + 1; }
+  else { bai_cnt = 0; }
+  if (bai_cnt >= 2 && zhi_dao > 30 && zhong_lu == 1)
+  {
+    zhi_xing_ms = 1500;
+  }
+  return 0;
+}
+
+int ZhiXing_Pao(void)
+{
+  if (QuanBai() == 0)
+  {
+    zhi_xing_ms = 0;
+    guo_du_ms = 250;
+    return 0;
+  }
+  zhi_xing_ms = zhi_xing_ms - 10;
+  if (zhi_xing_ms <= 0)
+  {
+    pao = 0;
+    Dianji_Ting();
+    return 1;
+  }
+  Dianji_Zuo(380);
+  Dianji_You(380);
+  return 1;
+}
+
+int Liubian_Chuli(void)
+{
+  int zuo;
+  int you;
+  int zhong;
+
+  if (huan_zuo_ms > 0)
+  {
+    huan_zuo_ms = huan_zuo_ms - 10;
+    Dianji_Zuo(150);
+    Dianji_You(750);
+    return 1;
+  }
+  if (HAL_GetTick() - huan_leng < 25000) { return 0; }
+  zuo = x[0] + x[1] + x[2];
+  you = x[5] + x[6] + x[7];
+  zhong = x[2] + x[3] + x[4];
+  if (zuo > 0 && you > 0 && zhong == 0)
+  {
+    huan_zuo_ms = 300;
+    huan_leng = HAL_GetTick();
+  }
+  return 0;
+}
+
+int Zhuanliang_Jisuan(int e)
+{
+  int zhuan = (e * 110 + (e - shang_ci) * 160) / 100;
+
+  if (e > 250 || e < -250) { zhuan = zhuan * 18 / 10; }
+  else if (e > 120 || e < -120) { zhuan = zhuan * 12 / 10; }
+  if (zhuan > 900) { zhuan = 900; }
+  if (zhuan < -900) { zhuan = -900; }
+  return zhuan;
+}
+
+int GuoDu_XianZhi(int zhuan)
+{
+  if (guo_du_ms <= 0) { return zhuan; }
+  guo_du_ms = guo_du_ms - 10;
+  if (zhuan > 350) { zhuan = 350; }
+  if (zhuan < -350) { zhuan = -350; }
+  return zhuan;
+}
+
+int Sudu_Jisuan(int e)
+{
+  int sudu = e;
+
+  if (sudu < 0) { sudu = -sudu; }
+  sudu = 260 - sudu / 4;
+  if (sudu < 200) { sudu = 200; }
+  return sudu;
+}
+
+void Jiquan_Chuli(void)
+{
+  unsigned int t = HAL_GetTick() - kai_shi;
+
+  if (t > 204700)
+  {
+    pao = 0;
+    Dianji_Ting();
+    return;
+  }
+  if (t < 169100) { return; }
+  if (t > 190460) { return; }
+  if (YaLu_LuShu() < 7) { return; }
+  pao = 0;
+  Dianji_Ting();
+  Fengming(200);
+}
+
+void Xunji_Run(void)
+{
+  int e;
+  int zhuan;
+  int sudu;
+
+  if (Duanlu_Chuli() == 1) { return; }
+  if (Liubian_Chuli() == 1) { return; }
+
+  e = Piancha_Jisuan();
+  zhuan = GuoDu_XianZhi(Zhuanliang_Jisuan(e));
+  sudu = Sudu_Jisuan(e);
+  Dianji_Zuo(sudu + zhuan);
+  Dianji_You(sudu - zhuan);
+  shang_ci = e;
+
+  Jilu_ZhongLu();
+  if (YaLu_LuShu() == 0) { }
+  else if (e < 250 && e > -250 && YaLu_LuShu() <= 2) { zhi_dao = zhi_dao + 1; }
+  else { zhi_dao = 0; }
+
+  DiuXian_Chuli();
+  Jiquan_Chuli();
+}
+
+void Fengming(int ms)
+{
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+  HAL_Delay(ms);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+}
+
+void Xianshi_Chuanganqi(void)
+{
+  int i;
+  int p;
+
+  for (i = 0; i < 8; i++)
+  {
+    p = 32 + i * 8;
+    if (x[i] == 1) { OLED_ShowString(p, 0, "1"); }
+    else { OLED_ShowString(p, 0, "0"); }
+  }
+}
+
+void Xianshi_Xunji(void)
+{
+  OLED_Clear();
+  Xianshi_Chuanganqi();
+  OLED_ShowString(0, 2, "TING");
+  OLED_ShowString(0, 4, "T=");
+  OLED_ShowString(0, 6, "K3:GO K4:BACK");
+}
+
+void Xianshi_Shuju(void)
+{
+  if (HAL_GetTick() - shang_ci_shua < 200) { return; }
+  shang_ci_shua = HAL_GetTick();
+  Xianshi_Chuanganqi();
+  if (pao == 1) { OLED_ShowString(0, 2, "PAO "); }
+  else { OLED_ShowString(0, 2, "TING"); }
+  OLED_ShowString(24, 4, "     ");
+  OLED_ShowNum(24, 4, (HAL_GetTick() - kai_shi) / 1000, 3, 16);
+}
+
+void Tiaoshi_Fasong(void)
+{
+  char s[10];
+  int i;
+
+  if (tiaoshi == 0) { return; }
+  if (HAL_GetTick() - shang_ci_fa < 100) { return; }
+  shang_ci_fa = HAL_GetTick();
+  for (i = 0; i < 8; i++)
+  {
+    if (x[i] == 1) { s[i] = '1'; }
+    else { s[i] = '0'; }
+  }
+  s[8] = ' ';
+  s[9] = 0;
+  FaSong(s);
+  FaSongShu(pian_cha);
+}
+
+void Xunji_AnJian(int k)
+{
+  if (k == 3)
+  {
+    kai_shi = HAL_GetTick();
+    shang_ci = 0;
+    zhi_dao = 0;
+    zhi_xing_ms = 0;
+    huan_zuo_ms = 0;
+    guo_du_ms = 0;
+    diu_cnt = 0;
+    bai_cnt = 0;
+    fang_xiang = 0;
+    zhong_lu = 0;
+    huan_leng = HAL_GetTick() - 25000;
+    pao = 1;
+    Fengming(200);
+  }
+  if (k == 4)
+  {
+    pao = 0;
+    Dianji_Ting();
+    menu = 0;
+    Xianshi_Zhucaidan();
+  }
 }
 /* USER CODE END 4 */
 

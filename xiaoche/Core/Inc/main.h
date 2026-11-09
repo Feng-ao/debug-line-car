@@ -65,6 +65,10 @@ void Error_Handler(void);
 #define KEY3_GPIO_Port GPIOA
 #define KEY4_Pin GPIO_PIN_3
 #define KEY4_GPIO_Port GPIOA
+#define BUZZER_Pin GPIO_PIN_4
+#define BUZZER_GPIO_Port GPIOA
+#define AIN1_Pin GPIO_PIN_5
+#define AIN1_GPIO_Port GPIOA
 #define LED1_Pin GPIO_PIN_0
 #define LED1_GPIO_Port GPIOB
 #define LED2_Pin GPIO_PIN_1
@@ -73,6 +77,28 @@ void Error_Handler(void);
 #define SCL_GPIO_Port GPIOB
 #define SDA_Pin GPIO_PIN_11
 #define SDA_GPIO_Port GPIOB
+#define X1_Pin GPIO_PIN_12
+#define X1_GPIO_Port GPIOB
+#define X2_Pin GPIO_PIN_13
+#define X2_GPIO_Port GPIOB
+#define X3_Pin GPIO_PIN_14
+#define X3_GPIO_Port GPIOB
+#define X4_Pin GPIO_PIN_15
+#define X4_GPIO_Port GPIOB
+#define AIN2_Pin GPIO_PIN_8
+#define AIN2_GPIO_Port GPIOA
+#define BIN1_Pin GPIO_PIN_11
+#define BIN1_GPIO_Port GPIOA
+#define BIN2_Pin GPIO_PIN_12
+#define BIN2_GPIO_Port GPIOA
+#define X8_Pin GPIO_PIN_5
+#define X8_GPIO_Port GPIOB
+#define X7_Pin GPIO_PIN_6
+#define X7_GPIO_Port GPIOB
+#define X5_Pin GPIO_PIN_8
+#define X5_GPIO_Port GPIOB
+#define X6_Pin GPIO_PIN_9
+#define X6_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
