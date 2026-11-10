@@ -215,7 +215,7 @@ int main(void)
         Xunji_Run();
       }
     }
-    if (menu == 3)
+    if (menu == 3 && pao == 0)
     {
       Xianshi_Shuju();
     }
@@ -474,7 +474,7 @@ void ChuanKou_Chuli(void)
 {
   char c;
 
-  if (HAL_UART_Receive(&huart1, (uint8_t *)&c, 1, 5) != HAL_OK)
+  if (HAL_UART_Receive(&huart1, (uint8_t *)&c, 1, 0) != HAL_OK)
   {
     return;
   }
