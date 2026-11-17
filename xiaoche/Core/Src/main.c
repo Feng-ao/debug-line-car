@@ -72,6 +72,10 @@ unsigned int shang_ci_fa = 0;
 unsigned int shang_ci_shua = 0;
 unsigned int shang_ci_kong = 0;
 int tiaoshi = 1;
+int ji_su = 260;
+int tuo_arrow = 0;
+int zhi_zou = 0;
+unsigned int zhi_zou_t0 = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -114,29 +118,6 @@ int Zhuanliang_Jisuan(int e);
 int GuoDu_XianZhi(int zhuan);
 int Sudu_Jisuan(int e);
 void Jiquan_Chuli(void);
-void Jilu_ZhongLu(void)
-{
-  if (YaLu_LuShu() == 0) { return; }
-  if (x[2] == 1 || x[3] == 1 || x[4] == 1 || x[5] == 1) { zhong_lu = 1; }
-  else { zhong_lu = 0; }
-}
-
-void DiuXian_Chuli(void)
-{
-  if (zhi_xing_ms > 0)
-  {
-    diu_cnt = 0;
-    return;
-  }
-  if (QuanBai() == 1) { diu_cnt = diu_cnt + 1; }
-  else { diu_cnt = 0; }
-  if (diu_cnt > 100)
-  {
-    pao = 0;
-    Dianji_Ting();
-  }
-}
-
 void Jilu_ZhongLu(void);
 void DiuXian_Chuli(void);
 void Xunji_Run(void);
@@ -146,6 +127,15 @@ void Xianshi_Xunji(void);
 void Xianshi_Shuju(void);
 void Tiaoshi_Fasong(void);
 void Xunji_AnJian(int k);
+void Canshu_BaoCun(int zhi);
+int Canshu_DuQu(void);
+void Tuozhan_AnJian(int k);
+void Canshu_AnJian(int k);
+void Canshu_JiaJian(int k);
+void Zhizou_AnJian(int k);
+void Xianshi_Canshu(void);
+void Xianshi_Zhizou(void);
+void Zhizou_Chuli(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -191,6 +181,7 @@ int main(void)
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   Dianji_Ting();
   OLED_Init();
+  ji_su = Canshu_DuQu();
   kai_shi = HAL_GetTick();
   OLED_Clear();
   Xianshi_Zhucaidan();
@@ -215,6 +206,7 @@ int main(void)
         Xunji_Run();
       }
     }
+    Zhizou_Chuli();
     if (menu == 3 && pao == 0)
     {
       Xianshi_Shuju();
@@ -281,6 +273,9 @@ void AnJian_Chuli(void)
   if (menu == 0) { Zhucaidan_AnJian(k); return; }
   if (menu == 1) { LED_AnJian(k); return; }
   if (menu == 3) { Xunji_AnJian(k); return; }
+  if (menu == 4) { Tuozhan_AnJian(k); return; }
+  if (menu == 5) { Canshu_AnJian(k); return; }
+  if (menu == 6) { Zhizou_AnJian(k); return; }
   if (k == 4)
   {
     menu = 0;
@@ -329,7 +324,7 @@ void Jinru_Caidan(void)
   if (arrow == 0) { menu = 1; Xianshi_LED(); }
   if (arrow == 1) { menu = 2; Xianshi_Xinxi(); }
   if (arrow == 2) { menu = 3; Xianshi_Xunji(); }
-  if (arrow == 3) { menu = 4; Xianshi_Tuozhan(); }
+  if (arrow == 3) { menu = 4; tuo_arrow = 0; Xianshi_Tuozhan(); }
 }
 
 void LED_AnJian(int k)
@@ -465,9 +460,11 @@ void Xianshi_Xinxi(void)
 void Xianshi_Tuozhan(void)
 {
   OLED_Clear();
-  OLED_ShowString(36, 0, "TUOZHAN");
-  OLED_ShowString(20, 2, "COMING SOON");
-  OLED_ShowString(32, 6, "K4: BACK");
+  if (tuo_arrow == 0) { OLED_ShowChar(20, 0, '>'); }
+  if (tuo_arrow == 1) { OLED_ShowChar(20, 2, '>'); }
+  OLED_ShowString(40, 0, "CANSHU");
+  OLED_ShowString(40, 2, "ZHIZOU");
+  OLED_ShowString(20, 6, "K1/K2 K3:IN");
 }
 
 void ChuanKou_Chuli(void)
@@ -763,7 +760,7 @@ int Sudu_Jisuan(int e)
   int sudu = e;
 
   if (sudu < 0) { sudu = -sudu; }
-  sudu = 260 - sudu / 4;
+  sudu = ji_su - sudu / 4;
   if (sudu < 200) { sudu = 200; }
   return sudu;
 }
@@ -896,6 +893,166 @@ void Xunji_AnJian(int k)
     Xianshi_Zhucaidan();
   }
 }
+
+void Canshu_BaoCun(int zhi)
+{
+  FLASH_EraseInitTypeDef chu;
+  unsigned int cuo = 0;
+
+  HAL_FLASH_Unlock();
+  chu.TypeErase = FLASH_TYPEERASE_PAGES;
+  chu.Banks = FLASH_BANK_1;
+  chu.PageAddress = 0x0800FC00;
+  chu.NbPages = 1;
+  HAL_FLASHEx_Erase(&chu, &cuo);
+  HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, 0x0800FC00, (unsigned int)zhi);
+  HAL_FLASH_Lock();
+}
+
+int Canshu_DuQu(void)
+{
+  unsigned int zhi;
+
+  zhi = *(unsigned int *)0x0800FC00;
+  if (zhi < 100 || zhi > 400)
+  {
+    zhi = 260;
+  }
+  return (int)zhi;
+}
+
+void Xianshi_Canshu(void)
+{
+  OLED_Clear();
+  OLED_ShowString(0, 0, "SPEED: ");
+  OLED_ShowNum(56, 0, ji_su, 3, 16);
+  OLED_ShowString(8, 2, "K1:+  K2:-");
+  OLED_ShowString(8, 4, "K3:SAVE");
+  OLED_ShowString(8, 6, "K4:BACK");
+}
+
+void Xianshi_Zhizou(void)
+{
+  OLED_Clear();
+  OLED_ShowString(40, 0, "ZHIZOU");
+  OLED_ShowString(8, 2, "SPEED: ");
+  OLED_ShowNum(64, 2, ji_su, 3, 16);
+  OLED_ShowString(8, 4, "K3:GO");
+  OLED_ShowString(8, 6, "K4:STOP");
+}
+
+void Tuozhan_AnJian(int k)
+{
+  if (k == 1)
+  {
+    tuo_arrow = tuo_arrow - 1;
+    if (tuo_arrow < 0) { tuo_arrow = 1; }
+    Xianshi_Tuozhan();
+  }
+  if (k == 2)
+  {
+    tuo_arrow = tuo_arrow + 1;
+    if (tuo_arrow > 1) { tuo_arrow = 0; }
+    Xianshi_Tuozhan();
+  }
+  if (k == 3)
+  {
+    if (tuo_arrow == 0) { menu = 5; Xianshi_Canshu(); }
+    if (tuo_arrow == 1) { menu = 6; Xianshi_Zhizou(); }
+  }
+  if (k == 4)
+  {
+    menu = 0;
+    Xianshi_Zhucaidan();
+  }
+}
+
+void Canshu_JiaJian(int k)
+{
+  if (k == 1)
+  {
+    ji_su = ji_su + 10;
+    if (ji_su > 400) { ji_su = 400; }
+  }
+  else
+  {
+    ji_su = ji_su - 10;
+    if (ji_su < 100) { ji_su = 100; }
+  }
+  Xianshi_Canshu();
+}
+
+void Canshu_AnJian(int k)
+{
+  if (k == 1 || k == 2) { Canshu_JiaJian(k); return; }
+  if (k == 3)
+  {
+    Canshu_BaoCun(ji_su);
+    Fengming(200);
+    return;
+  }
+  if (k == 4)
+  {
+    ji_su = Canshu_DuQu();
+    menu = 4;
+    Xianshi_Tuozhan();
+  }
+}
+
+void Zhizou_AnJian(int k)
+{
+  if (k == 3)
+  {
+    zhi_zou = 1;
+    zhi_zou_t0 = HAL_GetTick();
+    Fengming(100);
+  }
+  if (k == 4)
+  {
+    zhi_zou = 0;
+    Dianji_Ting();
+    menu = 4;
+    Xianshi_Tuozhan();
+  }
+}
+
+void Zhizou_Chuli(void)
+{
+  if (zhi_zou == 0) { return; }
+  if (HAL_GetTick() - zhi_zou_t0 > 5000)
+  {
+    zhi_zou = 0;
+    Dianji_Ting();
+    Xianshi_Zhizou();
+    return;
+  }
+  Dianji_Zuo(ji_su);
+  Dianji_You(ji_su);
+}
+
+void Jilu_ZhongLu(void)
+{
+  if (YaLu_LuShu() == 0) { return; }
+  if (x[2] == 1 || x[3] == 1 || x[4] == 1 || x[5] == 1) { zhong_lu = 1; }
+  else { zhong_lu = 0; }
+}
+
+void DiuXian_Chuli(void)
+{
+  if (zhi_xing_ms > 0)
+  {
+    diu_cnt = 0;
+    return;
+  }
+  if (QuanBai() == 1) { diu_cnt = diu_cnt + 1; }
+  else { diu_cnt = 0; }
+  if (diu_cnt > 100)
+  {
+    pao = 0;
+    Dianji_Ting();
+  }
+}
+
 /* USER CODE END 4 */
 
 /**
