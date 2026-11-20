@@ -76,6 +76,8 @@ int ji_su = 260;
 int tuo_arrow = 0;
 int zhi_zou = 0;
 unsigned int zhi_zou_t0 = 0;
+int yao_kong = 0;
+int shang_ci_dong = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -136,6 +138,9 @@ void Zhizou_AnJian(int k);
 void Xianshi_Canshu(void);
 void Xianshi_Zhizou(void);
 void Zhizou_Chuli(void);
+void Yaokong_Chuli(void);
+int YaoKong_MingLing(char c);
+void Yaokong_HuiXian(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -207,6 +212,7 @@ int main(void)
       }
     }
     Zhizou_Chuli();
+    Yaokong_Chuli();
     if (menu == 3 && pao == 0)
     {
       Xianshi_Shuju();
@@ -278,6 +284,9 @@ void AnJian_Chuli(void)
   if (menu == 6) { Zhizou_AnJian(k); return; }
   if (k == 4)
   {
+    yao_kong = 0;
+    shang_ci_dong = 0;
+    Dianji_Ting();
     menu = 0;
     Xianshi_Zhucaidan();
   }
@@ -475,6 +484,7 @@ void ChuanKou_Chuli(void)
   {
     return;
   }
+  if (YaoKong_MingLing(c) == 1) { return; }
   if (c == '\r' || c == '\n')
   {
     if (rxlen > 0)
@@ -854,6 +864,7 @@ void Tiaoshi_Fasong(void)
   int i;
 
   if (tiaoshi == 0) { return; }
+  if (menu != 3) { return; }
   if (HAL_GetTick() - shang_ci_fa < 100) { return; }
   shang_ci_fa = HAL_GetTick();
   for (i = 0; i < 8; i++)
@@ -1051,6 +1062,41 @@ void DiuXian_Chuli(void)
     pao = 0;
     Dianji_Ting();
   }
+}
+
+
+int YaoKong_MingLing(char c)
+{
+  if (c == 'F' || c == 'f') { yao_kong = 1; }
+  else if (c == 'B' || c == 'b') { yao_kong = 2; }
+  else if (c == 'L' || c == 'l') { yao_kong = 3; }
+  else if (c == 'R' || c == 'r') { yao_kong = 4; }
+  else if (c == 'S' || c == 's') { yao_kong = 0; }
+  else { return 0; }
+  pao = 0;
+  zhi_zou = 0;
+  Yaokong_HuiXian();
+  return 1;
+}
+
+void Yaokong_HuiXian(void)
+{
+  if (yao_kong == 0) { FaSong("STOP\n"); }
+  if (yao_kong == 1) { FaSong("FORWARD\n"); }
+  if (yao_kong == 2) { FaSong("BACK\n"); }
+  if (yao_kong == 3) { FaSong("LEFT\n"); }
+  if (yao_kong == 4) { FaSong("RIGHT\n"); }
+}
+
+void Yaokong_Chuli(void)
+{
+  if (yao_kong == shang_ci_dong) { return; }
+  shang_ci_dong = yao_kong;
+  if (yao_kong == 0) { Dianji_Ting(); }
+  if (yao_kong == 1) { Dianji_Zuo(ji_su); Dianji_You(ji_su); }
+  if (yao_kong == 2) { Dianji_Zuo(-ji_su); Dianji_You(-ji_su); }
+  if (yao_kong == 3) { Dianji_Zuo(-230); Dianji_You(300); }
+  if (yao_kong == 4) { Dianji_Zuo(300); Dianji_You(-230); }
 }
 
 /* USER CODE END 4 */
